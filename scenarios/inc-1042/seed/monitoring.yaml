@@ -1,0 +1,9 @@
+# Static shape of the monitoring board (spec §14). Live values come from the
+# prober; this file only declares the tiles and their ordering.
+tiles:
+  - austin-reachability
+  - aus-rtr1
+  - aus-sw1
+  - hq-services
+  - austin-latency
+  - wan-transit

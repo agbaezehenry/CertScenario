@@ -1,0 +1,115 @@
+# Northstar — INC-1042 "branch-ospf" topology template.
+#
+# Rendered per session by the containerlab provider:
+#   __LAB_NAME__ is replaced with a unique per-session lab name (ns-<id>).
+#   The configs/ directory referenced by the binds is a per-session COPY of
+#   configs/healthy, so learner `write memory` persists to the session, never
+#   to the scenario source of truth.
+#
+# Node roles:
+#   routers   hq-rtr1, aus-rtr1     FRRouting (vtysh, IOS-like syntax)
+#   hosts     app-srv, hq-client, aus-client1, aus-client2   Alpine
+#   switch    aus-sw1               Alpine + Linux bridge (not exercised by this scenario)
+#   infra     prober                dedicated prober container (spec §20.1); never visible
+#                                   to the learner and excluded from the node cap
+#
+# Addressing (spec §9.2):
+#   10.10.10.0/24  HQ application subnet     HQ-RTR1 .1   APP-SRV .10
+#   10.10.20.0/24  HQ user subnet            HQ-RTR1 .1   HQ-CLIENT .51
+#   10.10.30.0/30  NetOps probe link         HQ-RTR1 .1   prober .2
+#   10.255.0.0/30  WAN transit               HQ-RTR1 .1   AUS-RTR1 .2
+#   10.20.10.0/24  Austin users              AUS-RTR1 .1  AUS-CLIENT1 .51  AUS-CLIENT2 .52  prober .250
+
+name: __LAB_NAME__
+
+topology:
+  defaults:
+    kind: linux
+
+  nodes:
+    hq-rtr1:
+      image: quay.io/frrouting/frr:10.2.1
+      binds:
+        - configs/daemons:/etc/frr/daemons
+        - configs/hq-rtr1/frr.conf:/etc/frr/frr.conf
+      sysctls:
+        net.ipv4.ip_forward: 1
+      labels:
+        northstar.role: router
+
+    aus-rtr1:
+      image: quay.io/frrouting/frr:10.2.1
+      binds:
+        - configs/daemons:/etc/frr/daemons
+        - configs/aus-rtr1/frr.conf:/etc/frr/frr.conf
+      sysctls:
+        net.ipv4.ip_forward: 1
+      labels:
+        northstar.role: router
+
+    app-srv:
+      image: alpine:3.20
+      exec:
+        - ip addr add 10.10.10.10/24 dev eth1
+        - ip route add default via 10.10.10.1
+      labels:
+        northstar.role: host
+
+    hq-client:
+      image: alpine:3.20
+      exec:
+        - ip addr add 10.10.20.51/24 dev eth1
+        - ip route add default via 10.10.20.1
+      labels:
+        northstar.role: host
+
+    aus-sw1:
+      image: alpine:3.20
+      exec:
+        - ip link add name br0 type bridge
+        - ip link set br0 up
+        - ip link set eth1 master br0
+        - ip link set eth2 master br0
+        - ip link set eth3 master br0
+        - ip link set eth4 master br0
+      labels:
+        northstar.role: switch
+
+    aus-client1:
+      image: alpine:3.20
+      exec:
+        - ip addr add 10.20.10.51/24 dev eth1
+        - ip route add default via 10.20.10.1
+      labels:
+        northstar.role: host
+
+    aus-client2:
+      image: alpine:3.20
+      exec:
+        - ip addr add 10.20.10.52/24 dev eth1
+        - ip route add default via 10.20.10.1
+      labels:
+        northstar.role: host
+
+    prober:
+      image: alpine:3.20
+      exec:
+        # Two vantage points with policy routing so each ping leaves via its own leg.
+        - ip addr add 10.20.10.250/24 dev eth1
+        - ip addr add 10.10.30.2/30 dev eth2
+        - ip rule add from 10.20.10.250 table 101
+        - ip route add default via 10.20.10.1 dev eth1 table 101
+        - ip rule add from 10.10.30.2 table 102
+        - ip route add default via 10.10.30.1 dev eth2 table 102
+      labels:
+        northstar.role: infra
+
+  links:
+    - endpoints: ["hq-rtr1:eth1", "app-srv:eth1"]
+    - endpoints: ["hq-rtr1:eth2", "hq-client:eth1"]
+    - endpoints: ["hq-rtr1:eth3", "aus-rtr1:eth1"]
+    - endpoints: ["hq-rtr1:eth4", "prober:eth2"]
+    - endpoints: ["aus-rtr1:eth2", "aus-sw1:eth1"]
+    - endpoints: ["aus-sw1:eth2", "aus-client1:eth1"]
+    - endpoints: ["aus-sw1:eth3", "aus-client2:eth1"]
+    - endpoints: ["aus-sw1:eth4", "prober:eth1"]

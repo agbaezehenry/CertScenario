@@ -1,0 +1,253 @@
+# INC-1042 — Austin branch cannot reach internal services
+#
+# Everything a character may know lives OUTSIDE the `hidden:` key.
+# The character context builder is given a ScenarioPublicView that has no
+# `hidden` attribute at all (backend/app/characters/context.py). This is the
+# structural spoiler defense from spec §35 — prompt wording is only layer two.
+
+id: INC-1042
+title: Austin branch cannot reach internal services
+difficulty: junior
+
+role:
+  title: Associate Network Engineer
+  team: Infrastructure Engineering
+  manager: maya
+
+incident:
+  severity: SEV-2
+  reported_by: carlos
+  reported_at: "09:13"
+  affected: Austin office
+  description: >
+    Multiple users in Austin report that internal applications stopped
+    working this morning. Help desk has received several calls.
+
+topology:
+  template: topology.clab.yml
+  configs: configs/healthy
+  devices:
+    - name: HQ-RTR1
+      node: hq-rtr1
+      kind: router
+      site: HQ
+    - name: AUS-RTR1
+      node: aus-rtr1
+      kind: router
+      site: Austin
+    - name: AUS-SW1
+      node: aus-sw1
+      kind: switch
+      site: Austin
+    - name: APP-SRV
+      node: app-srv
+      kind: host
+      site: HQ
+      address: 10.10.10.10
+    - name: HQ-CLIENT
+      node: hq-client
+      kind: host
+      site: HQ
+      address: 10.10.20.51
+    - name: AUS-CLIENT1
+      node: aus-client1
+      kind: host
+      site: Austin
+      address: 10.20.10.51
+    - name: AUS-CLIENT2
+      node: aus-client2
+      kind: host
+      site: Austin
+      address: 10.20.10.52
+  prober:
+    node: prober
+    vantages:
+      austin: { interface: eth1, address: 10.20.10.250 }
+      hq:     { interface: eth2, address: 10.10.30.2 }
+
+faults:
+  - id: FAULT-1
+    type: configuration
+    device: AUS-RTR1
+    action: remove_ospf_network
+    target: "10.20.10.0/24"
+    area: 0
+
+decoys:
+  - type: change_log_entry
+    id: CHG-8817
+    device: HQ-RTR1
+    description: >
+      Restricted SSH management access on HQ-RTR1 to the HQ user subnet via
+      access-list MGMT-SSH. Applied during the same maintenance window.
+      Harmless. Reverting it is a regression.
+
+characters: [maya, carlos, priya]
+
+objectives:
+  - ccna.ip_connectivity.ospf
+  - troubleshooting.routing
+  - incident_management.communication
+
+skills:
+  - id: ccna.3.1.routing_table
+    weight: 0.3
+  - id: ccna.3.4.ospf
+    weight: 0.5
+  - id: professional.troubleshooting
+    weight: 0.2
+
+# Assertions carry a category. They are scored differently and are never
+# flattened into one list (spec §19.1).
+verification:
+  # resolution — must flip fail -> pass
+  - id: austin-to-app
+    check: ping
+    from: AUS-CLIENT1
+    destination: 10.10.10.10
+    expect: success
+    category: resolution
+
+  - id: hq-has-austin-prefix
+    check: route_exists
+    device: HQ-RTR1
+    prefix: "10.20.10.0/24"
+    via: ospf
+    category: resolution
+
+  # regression — must be true at start and end
+  - id: ospf-adjacency-full
+    check: ospf_neighbor
+    device: AUS-RTR1
+    neighbor: HQ-RTR1
+    expect: Full
+    category: regression
+
+  - id: hq-local
+    check: ping
+    from: HQ-CLIENT
+    destination: 10.10.10.10
+    expect: success
+    category: regression
+
+  - id: austin-learns-hq
+    check: route_exists
+    device: AUS-RTR1
+    prefix: "10.10.10.0/24"
+    via: ospf
+    category: regression
+
+  - id: wan-interface-up
+    check: interface
+    device: AUS-RTR1
+    interface: eth1
+    expect: up
+    category: regression
+
+  - id: decoy-acl-untouched
+    check: config_unchanged
+    device: HQ-RTR1
+    section: access-list
+    category: regression
+
+  # quality — passing is not required, method affects score
+  - id: no-redistribute-connected
+    check: config_absent
+    device: AUS-RTR1
+    pattern: "redistribute connected"
+    category: quality
+    on_fail: partial_credit
+
+  - id: no-catch-all-network
+    check: config_absent
+    device: AUS-RTR1
+    pattern: "network 0.0.0.0/0"
+    category: quality
+    on_fail: partial_credit
+
+  - id: no-static-bypass
+    check: config_absent
+    device: HQ-RTR1
+    pattern: "ip route 10.20.10.0/24"
+    category: quality
+    on_fail: partial_credit
+
+# Continuous 1 Hz prober (spec §20.1). Sources are prober vantages, not learner
+# hosts, so prober traffic is distinguishable from the learner's.
+prober_matrix:
+  - id: austin->app
+    vantage: austin
+    destination: 10.10.10.10
+    label: "Austin -> HQ application"
+  - id: austin->gw
+    vantage: austin
+    destination: 10.20.10.1
+    label: "Austin LAN gateway"
+  - id: hq->app
+    vantage: hq
+    destination: 10.10.10.10
+    label: "HQ local connectivity"
+  - id: hq->client
+    vantage: hq
+    destination: 10.10.20.51
+    label: "HQ user subnet"
+  - id: hq->aus-rtr1
+    vantage: hq
+    destination: 10.255.0.2
+    label: "WAN transit 10.255.0.0/30"
+
+monitoring:
+  - id: austin-reachability
+    label: Austin site reachability
+    source: prober
+    pair: austin->app
+  - id: aus-rtr1
+    label: AUS-RTR1
+    source: prober
+    pair: hq->aus-rtr1
+  - id: aus-sw1
+    label: AUS-SW1
+    source: static
+    value: UP
+  - id: hq-services
+    label: HQ services
+    source: prober
+    pair: hq->app
+  - id: austin-latency
+    label: "Austin -> HQ application latency"
+    source: prober_latency
+    pair: austin->app
+  - id: wan-transit
+    label: WAN transit 10.255.0.0/30
+    source: prober
+    pair: hq->aus-rtr1
+
+# ------------------------------------------------------------------
+# HIDDEN TRUTH. Never read by the character context builder.
+# ------------------------------------------------------------------
+hidden:
+  root_cause: >
+    During Tuesday night's maintenance window (CHG-8816) the
+    `network 10.20.10.0/24 area 0` statement was removed from the OSPF
+    configuration on AUS-RTR1. The Austin user subnet is no longer advertised
+    into area 0, so HQ-RTR1 has no return route.
+  minimal_fix:
+    device: AUS-RTR1
+    lines:
+      - router ospf
+      - network 10.20.10.0/24 area 0
+  minimum_config_lines_changed: 1
+  forbidden_in_character_output:
+    - "10.20.10.0/24"
+    - "10.20.10.0"
+    - "network statement"
+    - "network 10.20"
+    - "redistribute"
+    - "area 0"
+  sledgehammers:
+    - pattern: "redistribute connected"
+      score: partial
+    - pattern: "network 0.0.0.0/0"
+      score: partial
+    - pattern: "ip route 10.20.10.0/24"
+      score: partial

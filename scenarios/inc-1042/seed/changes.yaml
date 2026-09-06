@@ -1,0 +1,39 @@
+# Change log entries visible in the wiki / change log UI.
+# CHG-8816 is the real change; CHG-8817 is the decoy (spec §9.5).
+# Neither description says what broke — the learner must correlate.
+- id: CHG-8815
+  device: HQ-RTR1
+  engineer: priya
+  window: "2026-08-25 21:00-23:00"
+  applied_at: "2026-08-25 21:20"
+  status: completed
+  category: standard
+  summary: Interface description cleanup on HQ-RTR1
+  description: >
+    Normalised interface descriptions on HQ-RTR1 to the new naming standard.
+    No traffic impact expected.
+
+- id: CHG-8816
+  device: AUS-RTR1
+  engineer: priya
+  window: "2026-09-01 21:00-23:00"
+  applied_at: "2026-09-01 21:47"
+  status: completed
+  category: standard
+  summary: OSPF configuration tidy-up on AUS-RTR1
+  description: >
+    Cleaned up the router ospf section on AUS-RTR1 ahead of the Austin
+    subnet renumbering project. Removed statements that are no longer
+    required. Adjacency verified Full after the change.
+
+- id: CHG-8817
+  device: HQ-RTR1
+  engineer: priya
+  window: "2026-09-01 21:00-23:00"
+  applied_at: "2026-09-01 22:05"
+  status: completed
+  category: security
+  summary: Restrict SSH management access on HQ-RTR1
+  description: >
+    Applied access-list MGMT-SSH on HQ-RTR1 to limit SSH management access
+    to the HQ user subnet, per security review finding SR-211.
