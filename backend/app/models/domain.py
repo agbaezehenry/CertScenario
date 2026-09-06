@@ -154,7 +154,7 @@ class Incident(BaseModel):
     affected: str
     description: str
     dri_id: str
-    notes: list[str] = Field(default_factory=list)
+    notes: list[dict[str, Any]] = Field(default_factory=list)  # {"at": iso, "body": str}
     resolution: str | None = None
     impact: str | None = None
     root_cause: str | None = None

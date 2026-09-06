@@ -9,17 +9,21 @@ recorded as events and bumps the idle clock.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import Settings
 from app.events import EventBus, EventType
+from app.events.bus import Subscriber
 from app.events.types import CONFIG_COMMAND_MARKERS, READ_COMMAND_PREFIXES
 from app.labs.base import LabProvider
 from app.labs.faults import FaultInjector
 from app.labs.naming import new_lab_id
+from app.labs.reconcile import LIVE_STATES, session_expired
 from app.labs.store import SessionStore
 from app.models.domain import (
     CommandResult,
@@ -37,7 +41,14 @@ log = logging.getLogger("northstar.session")
 
 
 class SessionService:
-    def __init__(self, settings: Settings, provider: LabProvider, store: SessionStore) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        provider: LabProvider,
+        store: SessionStore,
+        *,
+        event_sinks: list[Subscriber] | None = None,
+    ) -> None:
         self.settings = settings
         self.provider = provider
         self.store = store
@@ -46,6 +57,8 @@ class SessionService:
         self._buses: dict[str, EventBus] = {}
         self._probers: dict[str, Prober] = {}
         self._scenarios: dict[str, ScenarioDefinition] = {}
+        self._event_sinks: list[Subscriber] = list(event_sinks or [])
+        self.on_bus_created: list[Callable[[str, EventBus], None]] = []
 
     # ------------------------------------------------------------- plumbing
     def session_dir(self, session_id: str) -> Path:
@@ -53,8 +66,32 @@ class SessionService:
 
     def bus(self, session_id: str) -> EventBus:
         if session_id not in self._buses:
-            self._buses[session_id] = EventBus(self.session_dir(session_id) / "events.jsonl")
+            bus = EventBus(self.session_dir(session_id) / "events.jsonl")
+            for sink in self._event_sinks:
+                bus.subscribe(sink)
+            self._buses[session_id] = bus
+            for hook in self.on_bus_created:
+                hook(session_id, bus)
         return self._buses[session_id]
+
+    def live_sessions(self) -> list[ScenarioSession]:
+        return [s for s in self.store.list() if s.state in LIVE_STATES]
+
+    async def sweep_expired(self, now: datetime | None = None) -> list[tuple[str, str]]:
+        """Destroy sessions past their idle/absolute timeouts (spec §7.3). Returns (id, reason)."""
+        out: list[tuple[str, str]] = []
+        for s in self.live_sessions():
+            why = session_expired(s, self.settings, now)
+            if why:
+                await self._emit(
+                    s,
+                    EventType.SESSION_IDLE_EXPIRED if why == "idle" else EventType.SESSION_TIMED_OUT,
+                    "system",
+                    reason=why,
+                )
+                await self.destroy(s.id)
+                out.append((s.id, why))
+        return out
 
     def prober(self, session_id: str) -> Prober | None:
         return self._probers.get(session_id)
@@ -159,6 +196,7 @@ class SessionService:
         (self.session_dir(session.id) / "verification" / f"{result.run_at.strftime('%H%M%S')}.json").write_text(
             result.model_dump_json(indent=2), encoding="utf-8"
         )
+        (self.session_dir(session.id) / "verification" / "latest.json").write_text(result.model_dump_json(indent=2), encoding="utf-8")
         await self._emit(
             session,
             EventType.VERIFICATION_RUN,
@@ -180,9 +218,32 @@ class SessionService:
         self._touch(session)
         return result
 
+    async def capture_final_state(self, session_id: str) -> dict[str, str]:
+        """Snapshot running configs before teardown; the grader compares them to the baseline."""
+        session = self.get(session_id)
+        path = self.session_dir(session_id) / "final_configs.json"
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        configs: dict[str, str] = {}
+        if session.lab_id:
+            try:
+                configs = dict((await self.provider.get_state(session.lab_id)).running_configs)
+            except Exception:  # noqa: BLE001 — lab may already be gone
+                log.warning("could not capture final state for %s", session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(configs, indent=2), encoding="utf-8")
+        return configs
+
+    def latest_verification(self, session_id: str) -> VerificationResult | None:
+        path = self.session_dir(session_id) / "verification" / "latest.json"
+        if not path.exists():
+            return None
+        return VerificationResult.model_validate_json(path.read_text(encoding="utf-8"))
+
     async def destroy(self, session_id: str) -> ScenarioSession:
         session = self.get(session_id)
         await self.stop_prober(session_id)
+        await self.capture_final_state(session_id)
         if session.lab_id:
             await self.provider.destroy(session.lab_id)
         session.ended_at = datetime.now(UTC)
@@ -196,6 +257,27 @@ class SessionService:
         await self._emit(session, EventType.LAB_DESTROYED, "lab", container_minutes=session.container_minutes)
         return session
 
+    async def complete(self, session_id: str) -> ScenarioSession:
+        """RESOLVED/POSTMORTEM -> COMPLETED, then tear the lab down."""
+        session = self.get(session_id)
+        if session.state == ScenarioState.RESOLVED:
+            session.state = transition(session.state, ScenarioState.POSTMORTEM)
+        session.state = transition(session.state, ScenarioState.COMPLETED)
+        self.store.save(session)
+        await self._emit(session, EventType.SCENARIO_COMPLETED, "system")
+        await self.stop_prober(session_id)
+        await self.capture_final_state(session_id)
+        if session.lab_id:
+            await self.provider.destroy(session.lab_id)
+        session = self.get(session_id)
+        session.ended_at = datetime.now(UTC)
+        scenario = self.scenario_for(session)
+        node_count = len(scenario.topology.devices) + (1 if scenario.topology.prober else 0)
+        session.container_minutes = round((session.ended_at - session.started_at).total_seconds() / 60 * node_count, 2)
+        self.store.save(session)
+        await self._emit(session, EventType.LAB_DESTROYED, "lab", container_minutes=session.container_minutes)
+        return session
+
     # ---------------------------------------------------------- learner I/O
     async def exec(self, session_id: str, device: str, command: str) -> CommandResult:
         """Run a learner command on a device and record telemetry (spec §22)."""
@@ -203,7 +285,7 @@ class SessionService:
         assert session.lab_id
         scenario = self.scenario_for(session)
         dev = scenario.topology.device(device)
-        if dev.kind == DeviceKind.ROUTER:
+        if dev.kind == DeviceKind.ROUTER and not command.strip().lower().startswith(("ping", "traceroute")):
             lines = [ln.strip() for ln in command.split(";") if ln.strip()]
             result = await self.provider.vtysh(session.lab_id, dev.name, lines, check=False)
         else:
