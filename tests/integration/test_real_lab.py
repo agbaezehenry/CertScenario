@@ -39,11 +39,15 @@ async def test_prober_detects_transient_outage_on_real_lab(real_settings, real_p
         await real_provider.vtysh(lab, "AUS-RTR1", ["configure terminal", "interface eth1", "shutdown", "end"])
         await asyncio.sleep(4)
         await real_provider.vtysh(lab, "AUS-RTR1", ["configure terminal", "interface eth1", "no shutdown", "end"])
-        await asyncio.sleep(45)  # OSPF re-adjacency + SPF
+        # Broadcast OSPF re-adjacency: 40 s wait timer for DR election, then exchange + SPF.
+        for _ in range(75):
+            await asyncio.sleep(2)
+            if any(e.event_type == EventType.NETWORK_CONNECTIVITY_RESTORED for e in bus.events):
+                break
         await prober.stop()
         types = [e.event_type for e in bus.events]
         assert EventType.NETWORK_CONNECTIVITY_LOST in types
-        assert EventType.NETWORK_CONNECTIVITY_RESTORED in types
+        assert EventType.NETWORK_CONNECTIVITY_RESTORED in types, types
     finally:
         await real_provider.destroy(lab)
 

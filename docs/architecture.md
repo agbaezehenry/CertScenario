@@ -193,10 +193,13 @@ the evidence-before-change ratio (§22) is computed from.
     unavailable, mandatory in CI).
 
 **Exit criterion status.** All four §38 cases hold on the mock
-(`tests/unit/test_verification.py`) and `northstar milestone --provider mock`
-passes all 12 steps. The same milestone runs against real FRR via
-`northstar milestone --provider containerlab`; it has not yet been executed
-on a host with docker + containerlab (see README "Status").
+(`tests/unit/test_verification.py`) and on real FRR: the CI integration job
+runs `northstar milestone` with `LAB_PROVIDER=containerlab` on a GitHub
+runner and all 12 steps pass. Three things had to change to get there, all
+recorded in git history: wait for OSPF convergence before asserting, use
+`ip route replace` for host defaults because containerlab's management
+interface already owns a default route, and drop `show ip interface brief`
+(not an FRR command) from the mock.
 
 ## 10. Phases 2–7 (delivered on top of the Phase 1 loop)
 

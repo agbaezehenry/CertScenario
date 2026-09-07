@@ -16,7 +16,7 @@ Lab runtime: [docs/lab-runtime.md](docs/lab-runtime.md)
 | Phase | State |
 |---|---|
 | 0 — architecture, domain model, schema, interfaces | done |
-| 1 — lab runtime (containerlab + FRR, faults, verification, prober, lifecycle, reconciliation, CLI) | code complete; 12-step milestone passes on the mock; **not yet executed on real containerlab** (needs a Linux host with docker + containerlab) |
+| 1 — lab runtime (containerlab + FRR, faults, verification, prober, lifecycle, reconciliation, CLI) | done; the 12-step milestone passes on the mock **and on real FRR in CI** (all four §38 exit-criterion cases) |
 | 2 — backend API and persistence (FastAPI, SQLAlchemy, WebSocket terminal) | done |
 | 3 — learner workspace UI (Next.js) | done; the §39 acceptance walkthrough was played end to end in a browser against the mock |
 | 4 — AI characters (context boundaries, LLM provider, validator, triggers) | done; rule-based responder when no LLM key is set; **leak-test gate not yet run against a live model** |
@@ -108,9 +108,8 @@ docs/            architecture · scenario-authoring · lab-runtime
 
 ## Known gaps
 
-* The real containerlab provider has not been exercised on this machine
-  (macOS, no docker). Run `LAB_PROVIDER=containerlab northstar milestone` on a
-  Linux host before trusting grading on real FRR.
+* Real FRR is exercised only in CI (GitHub-hosted Ubuntu runner). The learner
+  UI has been played end to end against the mock, not yet against real routers.
 * The character leak gate (`tests/characters`) needs an LLM key to run. Zero
   leaks is a ship requirement (spec §40.3).
 * Demo auth only (bearer token `demo-<user>`). Replace `api/deps.py` before
