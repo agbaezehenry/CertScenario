@@ -131,6 +131,7 @@ class ContainerlabProvider:
             cwd=workdir,
         )
         await self._wait_for_frr(lab_id)
+        await self._wait_for_ospf(lab_id)
         return inst
 
     async def _wait_for_frr(self, lab_id: str, attempts: int = 30) -> None:
@@ -143,6 +144,40 @@ class ContainerlabProvider:
                 await asyncio.sleep(1)
             else:
                 raise LabError(f"FRR did not come up on {dev.name}")
+
+    async def _wait_for_ospf(self, lab_id: str, timeout_s: float = 150.0) -> None:
+        """Block until every OSPF-speaking router has a Full neighbor and routes settle.
+
+        Real FRR needs hello/dead timers (10/40 s) plus SPF before the far-side
+        prefixes are installed; asserting before that is a false failure.
+        """
+        routers = [d for d in self._load_devices(lab_id) if d.kind == DeviceKind.ROUTER]
+        deadline = time.monotonic() + timeout_s
+        pending = set()
+        for dev in routers:
+            cfg = await self.vtysh(lab_id, dev.name, ["show running-config"], check=False)
+            if "router ospf" in cfg.stdout:
+                pending.add(dev.name)
+        while pending and time.monotonic() < deadline:
+            for name in list(pending):
+                res = await self.vtysh(lab_id, name, ["show ip ospf neighbor json"], check=False)
+                try:
+                    data = json.loads(res.stdout)
+                except json.JSONDecodeError:
+                    continue
+                states = [
+                    str(n.get("converged") or n.get("nbrState") or n.get("state") or "")
+                    for lst in data.get("neighbors", {}).values()
+                    for n in lst
+                ]
+                if any(st.lower().startswith("full") for st in states):
+                    pending.discard(name)
+            if pending:
+                await asyncio.sleep(2)
+        if pending:
+            log.warning("OSPF did not converge on %s within %ss", sorted(pending), timeout_s)
+        else:
+            await asyncio.sleep(5)  # let SPF install routes on both sides
 
     async def destroy(self, lab_id: str) -> None:
         workdir = self._workdir(lab_id)

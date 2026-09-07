@@ -41,6 +41,23 @@ class MilestoneReport:
 Reporter = Callable[[Step], None]
 
 
+async def wait_until(check, *, timeout_s: float, interval_s: float = 2.0):  # type: ignore[no-untyped-def]
+    """Poll an async predicate until it returns truthy or the timeout elapses.
+
+    Real routers converge asynchronously; the mock is instantaneous. Returns the
+    last predicate result so callers can report evidence either way.
+    """
+    import asyncio
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    result = await check()
+    while not result and time.monotonic() < deadline:
+        await asyncio.sleep(interval_s)
+        result = await check()
+    return result
+
+
 async def run_milestone(
     settings: Settings,
     provider: LabProvider,
@@ -82,9 +99,15 @@ async def run_milestone(
         injector = FaultInjector(provider)
         fault = sc.faults[0]
 
-        # 2. healthy connectivity
-        p = await provider.ping(lab, "AUS-CLIENT1", "10.10.10.10", count=2)
-        if not step(2, "Austin -> HQ works when healthy", p.success, f"AUS-CLIENT1 -> 10.10.10.10 {'ok' if p.success else 'FAIL'}"):
+        async def austin_reaches_hq() -> bool:
+            return (await provider.ping(lab, "AUS-CLIENT1", "10.10.10.10", count=2)).success
+
+        async def austin_cannot_reach_hq() -> bool:
+            return not (await provider.ping(lab, "AUS-CLIENT1", "10.10.10.10", count=2)).success
+
+        # 2. healthy connectivity (real OSPF needs time to converge)
+        ok = await wait_until(austin_reaches_hq, timeout_s=90)
+        if not step(2, "Austin -> HQ works when healthy", ok, f"AUS-CLIENT1 -> 10.10.10.10 {'ok' if ok else 'FAIL'}"):
             return out
 
         # 3. inject fault
@@ -93,9 +116,9 @@ async def run_milestone(
         if not step(3, "Inject fault", applied, f"{fault.action} {fault.target} on {fault.device} (changed={changed})"):
             return out
 
-        # 4. broken
-        p = await provider.ping(lab, "AUS-CLIENT1", "10.10.10.10", count=2)
-        if not step(4, "Austin -> HQ broken after fault", not p.success, f"AUS-CLIENT1 -> 10.10.10.10 {'still ok (BAD)' if p.success else 'unreachable'}"):
+        # 4. broken (LSA withdrawal is fast, but give the far side time to remove the route)
+        broken = await wait_until(austin_cannot_reach_hq, timeout_s=45)
+        if not step(4, "Austin -> HQ broken after fault", broken, f"AUS-CLIENT1 -> 10.10.10.10 {'unreachable' if broken else 'still ok (BAD)'}"):
             return out
 
         # 5. trap: adjacency still FULL
@@ -127,9 +150,11 @@ async def run_milestone(
         baseline = (await provider.get_state(lab)).running_configs
         ctx = VerificationContext(baseline_configs=baseline)
 
-        # 7. repair minimally
+        # 7. repair minimally, then wait for the far side to learn the prefix
         await provider.vtysh(lab, "AUS-RTR1", ["configure terminal", "router ospf", f"network {fault.target} area {fault.area}", "end"])
-        if not step(7, "Repair OSPF configuration", not await injector.is_applied(lab, fault), f"network {fault.target} area {fault.area} restored on AUS-RTR1"):
+        repaired = not await injector.is_applied(lab, fault)
+        converged = await wait_until(austin_reaches_hq, timeout_s=90)
+        if not step(7, "Repair OSPF configuration", repaired and converged, f"network {fault.target} area {fault.area} restored on AUS-RTR1; Austin -> HQ {'ok' if converged else 'still down'}"):
             return out
 
         # 8/9. verification
@@ -145,8 +170,9 @@ async def run_milestone(
 
         # 10. re-break, sledgehammer, quality fails
         await injector.apply(lab, fault)
-        broken_again = not (await provider.ping(lab, "AUS-CLIENT1", "10.10.10.10")).success
+        broken_again = await wait_until(austin_cannot_reach_hq, timeout_s=45)
         await provider.vtysh(lab, "AUS-RTR1", ["configure terminal", "router ospf", "redistribute connected", "end"])
+        await wait_until(austin_reaches_hq, timeout_s=90)
         r2 = await svc.verifier.run_scenario(lab, sc, ctx)
         ok10 = broken_again and r2.resolution_ok and r2.regression_ok and not r2.quality_ok
         if not step(
