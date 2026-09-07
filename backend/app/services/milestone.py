@@ -41,6 +41,33 @@ class MilestoneReport:
 Reporter = Callable[[Step], None]
 
 
+async def collect_diagnostics(provider: LabProvider, lab: str) -> dict[str, str]:
+    """Device state dump for a failed step: routers, hosts, switch."""
+    from app.models.domain import DeviceKind
+
+    out: dict[str, str] = {}
+    for dev in provider.devices(lab):
+        try:
+            if dev.kind == DeviceKind.ROUTER:
+                for cmd in ("show ip interface brief", "show ip ospf neighbor", "show ip route", "show ip ospf interface"):
+                    res = await provider.vtysh(lab, dev.name, [cmd], check=False)
+                    out[f"{dev.name}: {cmd}"] = (res.stdout or res.stderr).strip()
+                res = await provider.exec(lab, dev.name, "sysctl net.ipv4.ip_forward; ip -br addr")
+                out[f"{dev.name}: sysctl/ip"] = (res.stdout + res.stderr).strip()
+            else:
+                res = await provider.exec(lab, dev.name, "ip -br addr; ip route; ip -br link")
+                out[f"{dev.name}: ip"] = (res.stdout + res.stderr).strip()
+        except Exception as e:  # noqa: BLE001
+            out[f"{dev.name}: error"] = repr(e)
+    for src, dst in (("AUS-CLIENT1", "10.20.10.1"), ("AUS-RTR1", "10.255.0.1"), ("HQ-RTR1", "10.10.10.10"), ("AUS-RTR1", "10.10.10.10")):
+        try:
+            res = await provider.ping(lab, src, dst, count=1)
+            out[f"ping {src} -> {dst}"] = "ok" if res.success else "FAIL " + res.raw.strip()[-200:]
+        except Exception as e:  # noqa: BLE001
+            out[f"ping {src} -> {dst}"] = repr(e)
+    return out
+
+
 async def wait_until(check, *, timeout_s: float, interval_s: float = 2.0):  # type: ignore[no-untyped-def]
     """Poll an async predicate until it returns truthy or the timeout elapses.
 
@@ -70,12 +97,21 @@ async def run_milestone(
     svc = SessionService(settings, provider, store)
     out = MilestoneReport()
 
+    diagnostics_for: dict[int, str] = {}
+
     def step(n: int, title: str, passed: bool, detail: str = "", **evidence: object) -> bool:
         s = Step(n=n, title=title, passed=passed, detail=detail, evidence=evidence)
         out.steps.append(s)
+        if not passed and n in diagnostics_for:
+            s.evidence["diagnostics"] = diagnostics_for[n]
         if report:
             report(s)
         return passed
+
+    async def fail_with_diagnostics(n: int) -> None:
+        if lab:
+            diag = await collect_diagnostics(provider, lab)
+            diagnostics_for[n] = "\n".join(f"--- {k}\n{v}" for k, v in diag.items())
 
     # 1. provision healthy (no fault, no prober yet)
     scenario = svc.scenario_for  # noqa: F841 (kept for readability)
@@ -107,6 +143,8 @@ async def run_milestone(
 
         # 2. healthy connectivity (real OSPF needs time to converge)
         ok = await wait_until(austin_reaches_hq, timeout_s=90)
+        if not ok:
+            await fail_with_diagnostics(2)
         if not step(2, "Austin -> HQ works when healthy", ok, f"AUS-CLIENT1 -> 10.10.10.10 {'ok' if ok else 'FAIL'}"):
             return out
 
@@ -118,6 +156,8 @@ async def run_milestone(
 
         # 4. broken (LSA withdrawal is fast, but give the far side time to remove the route)
         broken = await wait_until(austin_cannot_reach_hq, timeout_s=45)
+        if not broken:
+            await fail_with_diagnostics(4)
         if not step(4, "Austin -> HQ broken after fault", broken, f"AUS-CLIENT1 -> 10.10.10.10 {'unreachable' if broken else 'still ok (BAD)'}"):
             return out
 
@@ -154,6 +194,8 @@ async def run_milestone(
         await provider.vtysh(lab, "AUS-RTR1", ["configure terminal", "router ospf", f"network {fault.target} area {fault.area}", "end"])
         repaired = not await injector.is_applied(lab, fault)
         converged = await wait_until(austin_reaches_hq, timeout_s=90)
+        if not (repaired and converged):
+            await fail_with_diagnostics(7)
         if not step(7, "Repair OSPF configuration", repaired and converged, f"network {fault.target} area {fault.area} restored on AUS-RTR1; Austin -> HQ {'ok' if converged else 'still down'}"):
             return out
 

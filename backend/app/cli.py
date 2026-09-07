@@ -236,6 +236,9 @@ def milestone(provider: str | None = typer.Option(None, "--provider", help="mock
     def show(s: Step) -> None:
         mark = "[green]PASS[/]" if s.passed else "[red]FAIL[/]"
         console.print(f"{s.n:>2}. {mark}  {s.title}\n      {s.detail}")
+        if not s.passed and s.evidence.get("diagnostics"):
+            console.print("[dim]diagnostics:[/]")
+            console.print(str(s.evidence["diagnostics"]), markup=False, highlight=False)
 
     rep = asyncio.run(run_milestone(svc.settings, svc.provider, svc.store, report=show))
     console.print("\n[bold]milestone:[/] " + ("[green]OK[/]" if rep.ok else "[red]FAILED[/]"))

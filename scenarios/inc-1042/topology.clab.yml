@@ -34,6 +34,8 @@ topology:
         - configs/hq-rtr1/frr.conf:/etc/frr/frr.conf
       sysctls:
         net.ipv4.ip_forward: 1
+      exec:
+        - sysctl -w net.ipv4.ip_forward=1
       labels:
         northstar.role: router
 
@@ -44,6 +46,8 @@ topology:
         - configs/aus-rtr1/frr.conf:/etc/frr/frr.conf
       sysctls:
         net.ipv4.ip_forward: 1
+      exec:
+        - sysctl -w net.ipv4.ip_forward=1
       labels:
         northstar.role: router
 
@@ -64,7 +68,11 @@ topology:
         northstar.role: host
 
     aus-sw1:
-      image: alpine:3.20
+      # FRR image used only for its full iproute2 (busybox `ip` cannot enslave
+      # ports reliably); no routing daemons run here.
+      image: quay.io/frrouting/frr:10.2.1
+      entrypoint: sleep
+      cmd: infinity
       exec:
         - ip link add name br0 type bridge
         - ip link set br0 up
@@ -72,6 +80,7 @@ topology:
         - ip link set eth2 master br0
         - ip link set eth3 master br0
         - ip link set eth4 master br0
+        - sysctl -w net.bridge.bridge-nf-call-iptables=0
       labels:
         northstar.role: switch
 
@@ -92,7 +101,9 @@ topology:
         northstar.role: host
 
     prober:
-      image: alpine:3.20
+      image: quay.io/frrouting/frr:10.2.1
+      entrypoint: sleep
+      cmd: infinity
       exec:
         # Two vantage points with policy routing so each ping leaves via its own leg.
         - ip addr add 10.20.10.250/24 dev eth1
