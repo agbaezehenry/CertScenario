@@ -98,6 +98,8 @@ def create_app(platform: Platform | None = None, *, housekeeping_interval_s: flo
         info = plat.world.me(user.id)
         active = plat.active_session(user.id)
         info["active_session"] = active.model_dump(mode="json", exclude={"baseline_configs"}) if active else None
+        past = [s for s in plat.store.list() if s.learner_id == user.id and s.state not in LIVE_STATES]
+        info["last_session"] = past[-1].model_dump(mode="json", exclude={"baseline_configs"}) if past else None
         info["incidents"] = [i.model_dump() for i in plat.world.incidents(active.id)] if active else []
         info["scenarios"] = [{"id": "INC-1042", "title": plat.world.scenario("INC-1042").title}]
         info["character_mode"] = "llm" if plat.llm else "stub"

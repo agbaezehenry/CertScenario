@@ -137,6 +137,7 @@ class ScenarioSession(BaseModel):
     container_minutes: float = 0.0
     workdir: str | None = None
     baseline_configs: dict[str, str] = Field(default_factory=dict)
+    end_reason: str | None = None  # completed | abandoned | idle | absolute | orphan | failed
 
 
 # ----------------------------------------------------------------------------

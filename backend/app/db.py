@@ -43,6 +43,7 @@ class SessionRow(Base):
     container_minutes: Mapped[float] = mapped_column(Float, default=0.0)
     workdir: Mapped[str | None] = mapped_column(String(512), nullable=True)
     baseline_configs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    end_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class IncidentRow(Base):
@@ -139,6 +140,26 @@ class Database:
         self.engine = create_engine(self.url, **kwargs)
         self._factory = sessionmaker(bind=self.engine, expire_on_commit=False)
         Base.metadata.create_all(self.engine)
+        self._ensure_columns()
+
+    def _ensure_columns(self) -> None:
+        """Add columns that exist on the models but not in an older SQLite file.
+
+        Good enough for the MVP's single-developer databases; use Alembic once
+        there is a production schema to protect.
+        """
+        from sqlalchemy import inspect, text
+
+        insp = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table in Base.metadata.sorted_tables:
+                if not insp.has_table(table.name):
+                    continue
+                existing = {c["name"] for c in insp.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name not in existing:
+                        ctype = col.type.compile(dialect=self.engine.dialect)
+                        conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{col.name}" {ctype}'))
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -215,6 +236,7 @@ class SqlSessionStore:
             container_minutes=m.container_minutes,
             workdir=m.workdir,
             baseline_configs=dict(m.baseline_configs),
+            end_reason=m.end_reason,
         )
 
     @staticmethod
@@ -231,6 +253,7 @@ class SqlSessionStore:
             container_minutes=r.container_minutes or 0.0,
             workdir=r.workdir,
             baseline_configs=dict(r.baseline_configs or {}),
+            end_reason=r.end_reason,
         )
 
     def save(self, session: ScenarioSession) -> None:

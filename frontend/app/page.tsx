@@ -43,6 +43,16 @@ export default function Dashboard() {
             <div className="label">Assigned</div>
             {s && <span className="text-[11px] text-ink-500">session started {fmtDateTime(s.started_at)} · {minutesSince(s.started_at)} min ago</span>}
           </div>
+          {!s && me.last_session && me.last_session.end_reason && me.last_session.end_reason !== "completed" && (
+            <div className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {me.last_session.end_reason === "idle" && "Your previous session was closed after 20 minutes without activity; its lab was destroyed."}
+              {me.last_session.end_reason === "absolute" && "Your previous session hit the 4-hour limit and was closed."}
+              {me.last_session.end_reason === "abandoned" && "Your previous session was abandoned."}
+              {me.last_session.end_reason === "failed" && "Your previous session failed to provision. Check the backend logs."}
+              {!["idle", "absolute", "abandoned", "failed"].includes(me.last_session.end_reason) && `Your previous session ended (${me.last_session.end_reason}).`}
+              {" "}Progress is not carried over. <Link href="/scorecard" className="underline">Review it</Link> or clock in again.
+            </div>
+          )}
           {!s && (
             <div className="mt-3">
               <div className="text-sm text-ink-600">Nothing assigned right now.</div>

@@ -1,0 +1,57 @@
+# Spec §39: `docker compose up` then open http://localhost:3000
+#
+# Default profile runs the MOCK lab provider so it works on any machine.
+# Real FRR labs need Linux with docker + containerlab; use the "real" profile:
+#   docker compose --profile real up
+# which runs the backend privileged with the host docker socket and network.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      LAB_PROVIDER: ${LAB_PROVIDER:-mock}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////srv/.northstar/northstar.db}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    volumes:
+      - northstar-state:/srv/.northstar
+    ports:
+      - "8000:8000"
+    profiles: ["", "mock"]
+
+  backend-real:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      LAB_PROVIDER: containerlab
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////srv/.northstar/northstar.db}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    volumes:
+      - northstar-state:/srv/.northstar
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/netns:/var/run/netns
+      - /etc/hosts:/etc/hosts
+    privileged: true
+    pid: host
+    network_mode: host   # serves on :8000 on the host
+    profiles: ["real"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    profiles: ["", "mock", "real"]
+
+volumes:
+  northstar-state:

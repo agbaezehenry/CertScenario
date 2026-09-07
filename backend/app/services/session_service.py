@@ -89,7 +89,7 @@ class SessionService:
                     "system",
                     reason=why,
                 )
-                await self.destroy(s.id)
+                await self.destroy(s.id, reason=why)
                 out.append((s.id, why))
         return out
 
@@ -157,6 +157,7 @@ class SessionService:
                 await self.start_prober(session.id)
         except Exception:
             session.state = ScenarioState.FAILED
+            session.end_reason = "failed"
             self.store.save(session)
             raise
         return session
@@ -240,7 +241,7 @@ class SessionService:
             return None
         return VerificationResult.model_validate_json(path.read_text(encoding="utf-8"))
 
-    async def destroy(self, session_id: str) -> ScenarioSession:
+    async def destroy(self, session_id: str, *, reason: str = "abandoned") -> ScenarioSession:
         session = self.get(session_id)
         await self.stop_prober(session_id)
         await self.capture_final_state(session_id)
@@ -253,8 +254,9 @@ class SessionService:
             (session.ended_at - session.started_at).total_seconds() / 60 * node_count, 2
         )
         session.state = ScenarioState.DESTROYED
+        session.end_reason = session.end_reason or reason
         self.store.save(session)
-        await self._emit(session, EventType.LAB_DESTROYED, "lab", container_minutes=session.container_minutes)
+        await self._emit(session, EventType.LAB_DESTROYED, "lab", container_minutes=session.container_minutes, reason=session.end_reason)
         return session
 
     async def complete(self, session_id: str) -> ScenarioSession:
@@ -263,6 +265,7 @@ class SessionService:
         if session.state == ScenarioState.RESOLVED:
             session.state = transition(session.state, ScenarioState.POSTMORTEM)
         session.state = transition(session.state, ScenarioState.COMPLETED)
+        session.end_reason = "completed"
         self.store.save(session)
         await self._emit(session, EventType.SCENARIO_COMPLETED, "system")
         await self.stop_prober(session_id)

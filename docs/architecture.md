@@ -198,8 +198,38 @@ passes all 12 steps. The same milestone runs against real FRR via
 `northstar milestone --provider containerlab`; it has not yet been executed
 on a host with docker + containerlab (see README "Status").
 
-## 10. What is deliberately not built yet
+## 10. Phases 2–7 (delivered on top of the Phase 1 loop)
 
-FastAPI/WebSocket terminal, frontend, LLM characters beyond the abstractions,
-assessment scoring, docker-compose. Spec §48: nothing above the lab loop
-until the loop is proven on real containers.
+| Phase | Where | Notes |
+|---|---|---|
+| 2 API + persistence | `api/`, `db.py`, `services/platform.py` | FastAPI; SQLAlchemy rows mirror the domain models; `SqlSessionStore` replaces the JSON store behind the same protocol; startup reconciliation + 30 s housekeeping (timeouts, elapsed-time triggers) |
+| 3 UI | `frontend/` | Next.js app router; every page polls the API; terminal is xterm.js over the WebSocket with local line editing |
+| 4 characters | `characters/` | `CharacterEngine`: public-view context → prompt → LLM → validator → regenerate or fall back to `StubResponder`. `TriggerEngine` fires Maya/Carlos on events and elapsed time |
+| 5 consequences | `probing/` + `characters/triggers.py` | prober events drive the monitoring board and Maya's "did you make a change?" |
+| 6 assessment | `assessments/` | six dimensions, weights in `scorer.WEIGHTS`; postmortem graded against `configs/healthy` vs `broken` and the event log |
+| 7 polish | `docker-compose.yml`, Dockerfiles, docs, CI | mock profile by default, `--profile real` for containerlab |
+
+### Terminal design
+
+Rather than a PTY into `vtysh`, the terminal is line-based: the backend tracks
+the router mode (exec / config / router / interface) and executes every line
+with its full path (`configure terminal; router ospf; <line>; end`) through
+`SessionService.exec`. Consequences: identical behaviour on real FRR and the
+mock, every line is telemetry, no `docker exec -it` plumbing, and config
+changes are atomic per line. `show` inside config modes needs `do`, as on
+FRR. Unbounded `ping` is capped at four packets.
+
+### Character data flow
+
+```
+scenario.yaml ──public()──▶ ScenarioPublicView ─┐
+seed/characters.yaml ───────────────────────────┼─▶ build_character_context ─▶ build_messages ─▶ LLM
+seed/changes.yaml, wiki/ ───────────────────────┤                                                  │
+events (filtered by role, device output dropped)┘                                                  ▼
+                                                                          validate_character_output ─▶ persist
+                                                                          (forbidden strings + config-line regex;
+                                                                           regenerate ≤3, then StubResponder)
+```
+
+`hidden:` is only read by `verification/` (nothing), `assessments/` (ground
+truth) and `characters/validator.py` (as a filter on *output*).

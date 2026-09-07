@@ -64,13 +64,14 @@ export interface Me {
   company: { id: string; name: string };
   responsibility_level: string;
   active_session: Session | null;
+  last_session: Session | null;
   incidents: Incident[];
   scenarios: { id: string; title: string }[];
   character_mode: "llm" | "stub";
 }
 export interface Session {
   id: string; scenario_id: string; learner_id: string; state: string; lab_id: string | null;
-  started_at: string; last_activity_at: string; ended_at: string | null; container_minutes: number;
+  started_at: string; last_activity_at: string; ended_at: string | null; container_minutes: number; end_reason: string | null;
   completion?: Record<string, boolean>; prober_running?: boolean;
 }
 export interface Incident {

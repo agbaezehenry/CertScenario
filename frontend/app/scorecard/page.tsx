@@ -21,7 +21,7 @@ export default function ScorecardPage() {
   const sessions = usePoll(() => api<Session[]>("/api/sessions"), 30000, [me?.user.id]);
   const target = session ?? (sessions.data ?? []).filter((s) => s.state === "COMPLETED").slice(-1)[0] ?? null;
   const card = usePoll(() => (target ? api<Scorecard>(`/api/sessions/${target.id}/scorecard`) : Promise.resolve(null)), 8000, [target?.id]);
-  const detail = target ? usePollSession(target.id) : null;
+  const detail = usePollSession(target?.id ?? null);
   const complete = async () => {
     if (!target) return;
     setBusy(true);
@@ -83,7 +83,7 @@ export default function ScorecardPage() {
   );
 }
 
-function usePollSession(id: string) {
-  const { data } = usePoll(() => api<Session>(`/api/sessions/${id}`), 5000, [id]);
+function usePollSession(id: string | null) {
+  const { data } = usePoll(() => (id ? api<Session>(`/api/sessions/${id}`) : Promise.resolve(null)), 5000, [id]);
   return data;
 }

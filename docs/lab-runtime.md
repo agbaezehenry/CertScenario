@@ -109,3 +109,15 @@ distinguishable from the incident.
 * Labs must not share a Docker network with the backend or database.
 * Run FRR containers without `--privileged`; the topology only needs
   `net.ipv4.ip_forward`.
+
+## Development-environment quirks
+
+* **macOS App Nap.** When the backend runs as a background process on macOS
+  (for example under the desktop app's preview server), asyncio timers are
+  throttled while the process is idle, so the prober logs far fewer than one
+  sample per second. Samples carry real timestamps, so outage durations and
+  blast-radius scoring stay correct; only sample density drops. Linux hosts
+  are unaffected.
+* **Idle timeout is real.** Twenty minutes without a terminal line, chat
+  message, ticket update or page view destroys the lab. The dashboard shows
+  why the previous session ended (`end_reason`).
