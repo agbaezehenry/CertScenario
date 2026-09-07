@@ -50,17 +50,24 @@ jobs:
         if: always()
         run: sudo -E env PATH="$PATH" LAB_PROVIDER=containerlab .venv/bin/python -m app.cli cleanup-labs
 
-  # Spec §40.3: zero leaks required to ship. Runs when an LLM key is configured.
+  # Spec §40.3: zero leaks required to ship. Runs the leak gate when an LLM key
+  # is configured (secrets cannot gate a job directly, so the check is a step).
   characters:
     runs-on: ubuntu-latest
     needs: unit
-    if: ${{ secrets.LLM_API_KEY != '' }}
     env:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
       LLM_MODEL: ${{ vars.LLM_MODEL }}
     steps:
+      - id: key
+        run: |
+          if [ -n "$LLM_API_KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "LLM_API_KEY not set; leak gate skipped"; fi
       - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
       - uses: astral-sh/setup-uv@v3
+        if: steps.key.outputs.present == 'true'
       - run: uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+        if: steps.key.outputs.present == 'true'
       - run: .venv/bin/pytest -q -m characters tests/characters
+        if: steps.key.outputs.present == 'true'
