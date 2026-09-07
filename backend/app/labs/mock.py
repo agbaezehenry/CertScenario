@@ -117,7 +117,7 @@ class SimulatedNetwork:
             p = c.split()
             if p[:3] == ["ip", "addr", "add"]:
                 h.ifaces[p[-1]] = HostIface(name=p[-1], address=p[3])
-            elif p[:3] == ["ip", "route", "add"] and p[3] == "default":
+            elif p[:2] == ["ip", "route"] and p[2] in ("add", "replace") and p[3] == "default":
                 gw = p[p.index("via") + 1]
                 dev = p[p.index("dev") + 1] if "dev" in p else None
                 table = p[p.index("table") + 1] if "table" in p else "main"
@@ -558,7 +558,7 @@ class SimulatedNetwork:
             return "\n".join(blocks) + "\n", 0
         if c in ("show ip ospf", "show ip ospf database"):
             return f" OSPF Routing Process, Router ID: {cfg.ospf.router_id}\n Number of areas attached to this router: 1\n", 0
-        if c in ("show ip interface brief", "show ip int brief", "show ip int br", "show interface brief"):
+        if c in ("show interface brief", "show int brief", "show int br"):  # FRR has no `show ip interface brief`
             lines = ["Interface       Status  VRF             Addresses", "---------       ------  ---             ---------"]
             for nm in sorted(cfg.interfaces):
                 i = cfg.interfaces[nm]

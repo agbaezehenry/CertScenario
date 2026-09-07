@@ -6,6 +6,9 @@
 #   configs/healthy, so learner `write memory` persists to the session, never
 #   to the scenario source of truth.
 #
+# Every node also gets containerlab's management interface eth0 (172.20.20.0/24)
+# with its own default route, so host defaults use `ip route replace`.
+#
 # Node roles:
 #   routers   hq-rtr1, aus-rtr1     FRRouting (vtysh, IOS-like syntax)
 #   hosts     app-srv, hq-client, aus-client1, aus-client2   Alpine
@@ -55,7 +58,7 @@ topology:
       image: alpine:3.20
       exec:
         - ip addr add 10.10.10.10/24 dev eth1
-        - ip route add default via 10.10.10.1
+        - ip route replace default via 10.10.10.1
       labels:
         northstar.role: host
 
@@ -63,7 +66,7 @@ topology:
       image: alpine:3.20
       exec:
         - ip addr add 10.10.20.51/24 dev eth1
-        - ip route add default via 10.10.20.1
+        - ip route replace default via 10.10.20.1
       labels:
         northstar.role: host
 
@@ -88,7 +91,7 @@ topology:
       image: alpine:3.20
       exec:
         - ip addr add 10.20.10.51/24 dev eth1
-        - ip route add default via 10.20.10.1
+        - ip route replace default via 10.20.10.1
       labels:
         northstar.role: host
 
@@ -96,7 +99,7 @@ topology:
       image: alpine:3.20
       exec:
         - ip addr add 10.20.10.52/24 dev eth1
-        - ip route add default via 10.20.10.1
+        - ip route replace default via 10.20.10.1
       labels:
         northstar.role: host
 
@@ -109,9 +112,9 @@ topology:
         - ip addr add 10.20.10.250/24 dev eth1
         - ip addr add 10.10.30.2/30 dev eth2
         - ip rule add from 10.20.10.250 table 101
-        - ip route add default via 10.20.10.1 dev eth1 table 101
+        - ip route replace default via 10.20.10.1 dev eth1 table 101
         - ip rule add from 10.10.30.2 table 102
-        - ip route add default via 10.10.30.1 dev eth2 table 102
+        - ip route replace default via 10.10.30.1 dev eth2 table 102
       labels:
         northstar.role: infra
 

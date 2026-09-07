@@ -25,7 +25,7 @@ HELP = """Northstar NetOps jump host. Commands:
 Router CLI is IOS-like (FRRouting vtysh). Type '?' on a device for basics."""
 
 DEVICE_HELP = """Useful commands:
-  show ip interface brief        show interface <name>
+  show interface brief        show interface <name>
   show ip route [ospf]           show ip ospf neighbor
   show ip ospf interface         show running-config
   configure terminal             router ospf / interface <name>

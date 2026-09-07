@@ -49,13 +49,13 @@ async def collect_diagnostics(provider: LabProvider, lab: str) -> dict[str, str]
     for dev in provider.devices(lab):
         try:
             if dev.kind == DeviceKind.ROUTER:
-                for cmd in ("show ip interface brief", "show ip ospf neighbor", "show ip route", "show ip ospf interface"):
+                for cmd in ("show interface brief", "show ip ospf neighbor", "show ip route", "show ip ospf interface"):
                     res = await provider.vtysh(lab, dev.name, [cmd], check=False)
                     out[f"{dev.name}: {cmd}"] = (res.stdout or res.stderr).strip()
-                res = await provider.exec(lab, dev.name, "sysctl net.ipv4.ip_forward; ip -br addr")
+                res = await provider.exec(lab, dev.name, "sysctl net.ipv4.ip_forward; ip addr | grep -E '^[0-9]+:|inet '")
                 out[f"{dev.name}: sysctl/ip"] = (res.stdout + res.stderr).strip()
             else:
-                res = await provider.exec(lab, dev.name, "ip -br addr; ip route; ip -br link")
+                res = await provider.exec(lab, dev.name, "ip addr | grep -E '^[0-9]+:|inet '; ip route; ip link")
                 out[f"{dev.name}: ip"] = (res.stdout + res.stderr).strip()
         except Exception as e:  # noqa: BLE001
             out[f"{dev.name}: error"] = repr(e)

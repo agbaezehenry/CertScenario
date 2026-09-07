@@ -18,7 +18,7 @@ that fails can mean the request never arrived **or** the reply never came back.
 ## 2. Check interface state on the path
 
 ```
-show ip interface brief
+show interface brief
 show interface <name>
 ```
 
