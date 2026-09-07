@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html, body { height: 100%; }
+body { @apply bg-ink-100 text-ink-900 antialiased; font-feature-settings: "cv11", "ss01"; }
+
+.card { @apply rounded-md border border-ink-200 bg-white shadow-sm; }
+.label { @apply text-[11px] font-semibold uppercase tracking-wider text-ink-500; }
+.btn { @apply inline-flex items-center gap-1.5 rounded border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50; }
+.btn-primary { @apply btn border-brand-600 bg-brand-600 text-white hover:bg-brand-500; }
+.btn-ghost { @apply btn border-ink-300 bg-white text-ink-800 hover:bg-ink-50; }
+.btn-danger { @apply btn border-red-300 bg-white text-red-700 hover:bg-red-50; }
+.input { @apply w-full rounded border border-ink-300 bg-white px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100; }
+.pill { @apply inline-flex items-center rounded-sm px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide; }
+.pill-ok { @apply pill bg-green-100 text-green-800; }
+.pill-warn { @apply pill bg-amber-100 text-amber-800; }
+.pill-crit { @apply pill bg-red-100 text-red-800; }
+.pill-muted { @apply pill bg-ink-100 text-ink-600; }
+.pill-info { @apply pill bg-brand-100 text-brand-600; }
+
+.prose-wiki h1 { @apply mb-3 text-2xl font-semibold; }
+.prose-wiki h2 { @apply mb-2 mt-6 text-lg font-semibold; }
+.prose-wiki h3 { @apply mb-1 mt-4 text-base font-semibold; }
+.prose-wiki p { @apply my-2 leading-relaxed; }
+.prose-wiki ul, .prose-wiki ol { @apply my-2 list-disc pl-6; }
+.prose-wiki ol { @apply list-decimal; }
+.prose-wiki li { @apply my-0.5; }
+.prose-wiki pre { @apply my-3 overflow-x-auto rounded bg-ink-900 p-3 font-mono text-xs text-ink-100; }
+.prose-wiki code { @apply rounded bg-ink-100 px-1 font-mono text-[13px]; }
+.prose-wiki pre code { @apply bg-transparent p-0 text-inherit; }
+.prose-wiki table { @apply my-3 w-full border-collapse text-sm; }
+.prose-wiki th, .prose-wiki td { @apply border border-ink-200 px-2 py-1 text-left; }
+.prose-wiki th { @apply bg-ink-50 font-semibold; }
+.prose-wiki strong { @apply font-semibold; }
+.prose-wiki a { @apply text-brand-600 underline; }
+.prose-wiki hr { @apply my-4 border-ink-200; }
+
+.xterm { padding: 8px; }

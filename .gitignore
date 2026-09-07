@@ -9,3 +9,5 @@ __pycache__/
 node_modules/
 frontend/.next/
 *.egg-info/
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
